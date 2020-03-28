@@ -57,7 +57,7 @@ fn append_delete_marker(file: String, id: String) {
     .append(true)
     .open(file)
     .unwrap();
-  let line = format!("{{\"$$deleted\":true,\"id\":\"{}\"}}", id);
+  let line = format!("{{\"$$deleted\":true,\"_id\":\"{}\"}}", id);
   if let Err(e) = writeln!(file, "{}", line) {
     eprintln!("Couldn't write to file: {}", e);
   }
@@ -72,7 +72,7 @@ fn insert_into_collection(collection: &mut Collection, id: String, json_content:
   collection.data.insert(id.clone(), copy_json(&json_content));
 
   for (_name, index) in collection.indexes.iter_mut() {
-    let key_value = json_content[index.key.clone()].as_str().unwrap();
+    let key_value = json_content[index.key.clone()].as_str().unwrap_or("$$null");
     println!("Indexing {:?}/{:?}/{:?}", collection.name, key_value, id);
     if !index.data.contains_key(key_value) {
       println!("New index tree {:?} -> {:?}", key_value, id);
@@ -294,19 +294,19 @@ fn create(name: String, data: Json<CollectionData>) -> Status {
         let reader = BufReader::new(file);
 
         for (index, line) in reader.lines().enumerate() {
-          let line = line.unwrap(); // Ignore errors.
-          // Show the line and its number.
-          println!("{}. {}", index + 1, line);
+          let line = line.unwrap();
 
           if line.len() > 0 {
+            println!("{:?}", line);
             let json_content: Value = serde_json::from_str(&line).unwrap();
 
-            if json_content["$$deleted"].is_boolean() {
-              let id = json_content["id"].as_str().unwrap().to_string();
+            if json_content["$$indexCreated"].is_object() {}
+            else if json_content["$$deleted"].is_boolean() {
+              let id = json_content["_id"].as_str().unwrap().to_string();
               remove_from_collection(&mut collection, id, false);
             }
             else {
-              let id = json_content["id"].as_str().unwrap().to_string();
+              let id = json_content["_id"].as_str().unwrap().to_string();
               insert_into_collection(&mut collection, id, json_content, false);
             }
           }
