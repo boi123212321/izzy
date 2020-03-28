@@ -35,11 +35,6 @@ fn parse_json(datastr: String) -> Value {
   return serde_json::from_str(&datastr).unwrap();
 }
 
-fn get_json(value: Json<JsonValue>) -> Value {
-  let datastr = value.to_string();
-  return serde_json::from_str(&datastr).unwrap();
-}
-
 fn append_to_file(file: String, line: String) {
   let mut file = OpenOptions::new()
     .create(true)
@@ -293,7 +288,7 @@ fn create(name: String, data: Json<CollectionData>) -> Status {
         let file = File::open(path).unwrap();
         let reader = BufReader::new(file);
 
-        for (index, line) in reader.lines().enumerate() {
+        for (_index, line) in reader.lines().enumerate() {
           let line = line.unwrap();
 
           if line.len() > 0 {
@@ -320,7 +315,7 @@ fn create(name: String, data: Json<CollectionData>) -> Status {
 }
 
 #[delete("/<name>")]
-fn delete(name: String) -> Status {
+fn delete_collection(name: String) -> Status {
   println!("Trying to delete collection {:?}...", name);
   let mut collection_map = COLLECTIONS.lock().unwrap();
   if collection_map.contains_key(&name) {
@@ -339,6 +334,14 @@ fn get() -> Json<JsonValue> {
   Json(json!(collections))
 }
 
+#[delete("/")]
+fn reset() -> Status {
+  let mut collection_map = COLLECTIONS.lock().unwrap();
+  collection_map.clear();
+  collection_map.shrink_to_fit();
+  return Status::Ok;
+}
+
 pub fn routes() -> std::vec::Vec<rocket::Route> {
-  routes![create_index, create, get, delete, insert_item, retrieve_item, retrieve_indexed, delete_item]
+  routes![create_index, create, get, reset, delete_collection, insert_item, retrieve_item, retrieve_indexed, delete_item]
 }
