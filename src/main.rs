@@ -11,6 +11,7 @@ use rocket::config::{Config, Environment};
 use rocket_contrib::json::{Json, JsonValue};
 
 mod collection;
+mod index;
 
 #[get("/")]
 fn root() -> Json<JsonValue> {

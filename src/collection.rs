@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::vec::Vec;
 use std::sync::Mutex;
@@ -9,16 +10,22 @@ use serde_json::{Value};
 use std::fs::OpenOptions;
 use std::io::prelude::*;
 
+use crate::index;
+
 #[derive(Clone, Serialize, Deserialize)]
 struct Collection {
   name: String,
-  num_items: u32,
   data: HashMap<String, Value>,
-  file: Option<String>
+  file: Option<String>,
+  indexes: HashMap<String, index::Index>
 }
 
 lazy_static! {
   static ref COLLECTIONS: Mutex<HashMap<String, Collection>> = Mutex::new(HashMap::new());
+}
+
+fn parse_json(datastr: String) -> Value {
+  return serde_json::from_str(&datastr).unwrap();
 }
 
 fn get_json(value: Json<JsonValue>) -> Value {
@@ -70,9 +77,60 @@ fn delete_item(name: String, id: String) -> Json<JsonValue> {
       }));
     }
     else {
-      let item = collection.data.remove(&id);
+      let item = collection.data.remove(&id).unwrap();
+
+      for (name, index) in collection.indexes.iter_mut() {
+        let key_value = item[index.key.clone()].as_str().unwrap();
+        println!("Unindexing {:?}/{:?}", name, key_value);
+        if index.data.contains_key(key_value) {
+          println!("Unindexing from index tree {:?} -> {:?}", key_value, id);
+          let tree = index.data.get_mut(key_value).unwrap();
+          tree.remove(&id);
+        }
+      }
+
       append_delete_marker(collection.file.as_ref().unwrap().to_string(), id);
       return Json(json!(item));
+    }
+  }
+}
+
+#[get("/<name>/<index>/<key>")]
+fn retrieve_indexed(name: String, index: String, key: String) -> Json<JsonValue> {
+  println!("Trying to retrieve indexed {:?}/{:?}/{:?}...", name, index, key);
+  let collection_map = COLLECTIONS.lock().unwrap();
+  if !collection_map.contains_key(&name) {
+    return Json(json!({
+      "status": 404,
+      "message": "Not found",
+      "error": true
+    }));
+  }
+  else {
+    let collection = collection_map.get(&name).unwrap();
+    if !collection.indexes.contains_key(&index) {
+      return Json(json!({
+        "status": 404,
+        "message": "Not found",
+        "error": true
+      }));
+    }
+    else {
+      let index_obj = collection.indexes.get(&index).unwrap();
+
+      let result_tree = index_obj.data.get(&key);
+
+      if result_tree.is_none() {
+        return Json(json!({
+          "items": []
+        }));
+      }
+      else {
+        let results: Vec<_> = result_tree.unwrap().values().collect();
+        return Json(json!({
+          "items": results
+        }));
+      }
     }
   }
 }
@@ -112,17 +170,32 @@ fn insert_item(name: String, id: String, input: Json<JsonValue>) -> Status {
     return Status::NotFound;
   }
   else {
-    let json_content = get_json(input);
+    let json_content = parse_json(input.to_string());
 
-    let mut collection = collection_map.get_mut(&name).unwrap();
+    let collection = collection_map.get_mut(&name).unwrap();
 
     if !collection.file.is_none() {
       let line = serde_json::to_string(&json_content).unwrap();
       append_to_file(collection.file.as_ref().unwrap().to_string(), line);
     }
     
-    collection.data.insert(id, json_content);
-    collection.num_items += 1;
+    collection.data.insert(id.clone(), json_content);
+
+    for (_name, index) in collection.indexes.iter_mut() {
+      let key_value = input[index.key.clone()].as_str().unwrap();
+      println!("Indexing {:?}/{:?}", name, key_value);
+      if !index.data.contains_key(key_value) {
+        println!("New index tree {:?} -> {:?}", key_value, id);
+        let mut tree = HashMap::new();
+        tree.insert(id.clone(), parse_json(input.to_string()));
+        index.data.insert(key_value.to_string(), tree);
+      }
+      else {
+        println!("Inserting into index tree {:?} -> {:?}", key_value, id);
+        let tree = index.data.get_mut(key_value).unwrap();
+        tree.insert(id.clone(), parse_json(input.to_string()));
+      }
+    }
 
     return Status::Ok;
   }
@@ -131,6 +204,36 @@ fn insert_item(name: String, id: String, input: Json<JsonValue>) -> Status {
 #[derive(Clone, Serialize, Deserialize)]
 struct CollectionData {
   file: Option<String>
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct IndexData {
+  key: String
+}
+
+#[post("/<name>/index/<index>", data = "<data>")]
+fn create_index(name: String, index: String, data: Json<IndexData>) -> Status {
+  println!("Trying to create index {:?}/{:?}...", name, index);
+  let mut collection_map = COLLECTIONS.lock().unwrap();
+  if !collection_map.contains_key(&name) {
+    return Status::NotFound;
+  }
+  else {
+    let collection = collection_map.get_mut(&name).unwrap();
+    
+    if collection.indexes.contains_key(&index) {
+      return Status::Conflict;
+    }
+    else {
+      // Create index
+      let created_index = index::Index {
+        key: data.key.clone(),
+        data: BTreeMap::new()
+      };
+      collection.indexes.insert(index, created_index);
+      return Status::Ok;
+    }
+  }
 }
 
 #[post("/<name>", data = "<data>")]
@@ -143,9 +246,9 @@ fn create(name: String, data: Json<CollectionData>) -> Status {
   else {
     let collection = Collection {
       name: name.clone(),
-      num_items: 0,
       data: HashMap::new(),
-      file: data.file.clone()
+      file: data.file.clone(),
+      indexes: HashMap::new(),
     };
     collection_map.insert(name.clone(), collection);
 
@@ -176,5 +279,5 @@ fn get() -> Json<JsonValue> {
 }
 
 pub fn routes() -> std::vec::Vec<rocket::Route> {
-  routes![create, get, delete, insert_item, retrieve_item, delete_item]
+  routes![create_index, create, get, delete, insert_item, retrieve_item, retrieve_indexed, delete_item]
 }
