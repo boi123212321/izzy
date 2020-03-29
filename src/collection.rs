@@ -320,7 +320,6 @@ fn create(name: String, data: Json<CollectionData>) -> Status {
           let line = line.unwrap();
 
           if line.len() > 0 {
-            println!("{:?}", line);
             let json_content: Value = serde_json::from_str(&line).unwrap();
 
             if json_content["$$indexCreated"].is_object() {}
