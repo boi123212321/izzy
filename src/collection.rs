@@ -10,7 +10,7 @@ use serde_json::{Value};
 use std::fs::OpenOptions;
 use std::io::prelude::*;
 use std::path::Path;
-use std::fs::File;
+use std::fs::{File, rename};
 use std::io::{BufRead, BufReader};
 
 use crate::index;
@@ -101,6 +101,34 @@ fn remove_from_collection(collection: &mut Collection, id: String, modify_fs: bo
   }
 
   return item;
+}
+
+#[patch("/compact/<name>")]
+fn compact_collection(name: String) -> Status {
+  println!("Trying to compact {:?}...", name);
+  let mut collection_map = COLLECTIONS.lock().unwrap();
+  if !collection_map.contains_key(&name) {
+    return Status::NotFound;
+  }
+  else {
+    let collection = collection_map.get_mut(&name).unwrap();
+    let old_filename = collection.file.as_ref().unwrap();
+    let filename = format!("{}~", old_filename);
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(filename.clone())
+        .unwrap();
+    for value in collection.data.values() {
+      let json_line = serde_json::to_string(value).unwrap();
+      if let Err(e) = writeln!(file, "{}", json_line) {
+        eprintln!("Couldn't write to file: {}", e);
+      }
+    }
+    println!("Finalising compaction {} -> {}", filename, old_filename);
+    rename(filename, old_filename).unwrap();
+    return Status::Ok;
+  }
 }
 
 #[delete("/<name>/<id>")]
@@ -343,5 +371,5 @@ fn reset() -> Status {
 }
 
 pub fn routes() -> std::vec::Vec<rocket::Route> {
-  routes![create_index, create, get, reset, delete_collection, insert_item, retrieve_item, retrieve_indexed, delete_item]
+  routes![compact_collection, create_index, create, get, reset, delete_collection, insert_item, retrieve_item, retrieve_indexed, delete_item]
 }
