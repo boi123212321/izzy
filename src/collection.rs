@@ -18,7 +18,7 @@ use crate::index;
 #[derive(Clone, Serialize, Deserialize)]
 struct Collection {
   name: String,
-  data: HashMap<String, Value>,
+  data: HashMap<String, String>,
   file: Option<String>,
   indexes: HashMap<String, index::Index>
 }
@@ -64,7 +64,7 @@ fn insert_into_collection(collection: &mut Collection, id: String, json_content:
     append_to_file(collection.file.as_ref().unwrap().to_string(), line);
   }
   
-  collection.data.insert(id.clone(), copy_json(&json_content));
+  collection.data.insert(id.clone(), serde_json::to_string(&json_content).unwrap());
 
   for (_name, index) in collection.indexes.iter_mut() {
     let key_value = json_content[index.key.clone()].as_str().unwrap_or("$$null");
@@ -72,13 +72,13 @@ fn insert_into_collection(collection: &mut Collection, id: String, json_content:
     if !index.data.contains_key(key_value) {
       println!("New index tree {:?} -> {:?}", key_value, id);
       let mut tree = HashMap::new();
-      tree.insert(id.clone(), parse_json(json_content.to_string()));
+      tree.insert(id.clone(), serde_json::to_string(&json_content).unwrap());
       index.data.insert(key_value.to_string(), tree);
     }
     else {
       // println!("Inserting into index tree {:?} -> {:?}", key_value, id);
       let tree = index.data.get_mut(key_value).unwrap();
-      tree.insert(id.clone(), parse_json(json_content.to_string()));
+      tree.insert(id.clone(), serde_json::to_string(&json_content).unwrap());
     }
   }
 }
@@ -89,9 +89,10 @@ fn remove_from_collection(collection: &mut Collection, id: String, modify_fs: bo
   }
 
   let item = collection.data.remove(&id).unwrap();
+  let parsed = parse_json(item);
 
   for (name, index) in collection.indexes.iter_mut() {
-    let key_value = item[index.key.clone()].as_str().unwrap();
+    let key_value = parsed[index.key.clone()].as_str().unwrap();
     // println!("Unindexing {:?}/{:?}", name, key_value);
     if index.data.contains_key(key_value) {
       // println!("Unindexing from index tree {:?} -> {:?}", key_value, id);
@@ -100,7 +101,7 @@ fn remove_from_collection(collection: &mut Collection, id: String, modify_fs: bo
     }
   }
 
-  return item;
+  return parsed;
 }
 
 #[patch("/compact/<name>")]
@@ -190,8 +191,12 @@ fn retrieve_indexed(name: String, index: String, key: String) -> Json<JsonValue>
       }
       else {
         let results: Vec<_> = result_tree.unwrap().values().collect();
+        let parsed_results: Vec<_> = results
+          .into_iter()
+          .map(|x| parse_json(x.to_string()))
+          .collect();
         return Json(json!({
-          "items": results
+          "items": parsed_results
         }));
       }
     }
@@ -220,7 +225,7 @@ fn retrieve_item(name: String, id: String) -> Json<JsonValue> {
     }
     else {
       let item = collection.data.get(&id).unwrap();
-      return Json(json!(item));
+      return Json(json!(parse_json(item.to_string())));
     }
   }
 }
