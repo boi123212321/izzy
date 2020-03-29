@@ -68,7 +68,7 @@ fn insert_into_collection(collection: &mut Collection, id: String, json_content:
 
   for (_name, index) in collection.indexes.iter_mut() {
     let key_value = json_content[index.key.clone()].as_str().unwrap_or("$$null");
-    println!("Indexing {:?}/{:?}/{:?}", collection.name, key_value, id);
+    // println!("Indexing {:?}/{:?}/{:?}", collection.name, key_value, id);
     if !index.data.contains_key(key_value) {
       println!("New index tree {:?} -> {:?}", key_value, id);
       let mut tree = HashMap::new();
@@ -76,7 +76,7 @@ fn insert_into_collection(collection: &mut Collection, id: String, json_content:
       index.data.insert(key_value.to_string(), tree);
     }
     else {
-      println!("Inserting into index tree {:?} -> {:?}", key_value, id);
+      // println!("Inserting into index tree {:?} -> {:?}", key_value, id);
       let tree = index.data.get_mut(key_value).unwrap();
       tree.insert(id.clone(), parse_json(json_content.to_string()));
     }
@@ -92,9 +92,9 @@ fn remove_from_collection(collection: &mut Collection, id: String, modify_fs: bo
 
   for (name, index) in collection.indexes.iter_mut() {
     let key_value = item[index.key.clone()].as_str().unwrap();
-    println!("Unindexing {:?}/{:?}", name, key_value);
+    // println!("Unindexing {:?}/{:?}", name, key_value);
     if index.data.contains_key(key_value) {
-      println!("Unindexing from index tree {:?} -> {:?}", key_value, id);
+      // println!("Unindexing from index tree {:?} -> {:?}", key_value, id);
       let tree = index.data.get_mut(key_value).unwrap();
       tree.remove(&id);
     }
@@ -133,7 +133,7 @@ fn compact_collection(name: String) -> Status {
 
 #[delete("/<name>/<id>")]
 fn delete_item(name: String, id: String) -> Json<JsonValue> {
-  println!("Trying to delete {:?}/{:?}...", name, id);
+  // println!("Trying to delete {:?}/{:?}...", name, id);
   let mut collection_map = COLLECTIONS.lock().unwrap();
   if !collection_map.contains_key(&name) {
     return Json(json!({
