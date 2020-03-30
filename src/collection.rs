@@ -88,7 +88,7 @@ fn remove_from_collection(collection: &mut Collection, id: String, modify_fs: bo
   let parsed = parse_json(item);
 
   for (_name, index) in collection.indexes.iter_mut() {
-    let key_value = parsed[index.key.clone()].as_str().unwrap();
+    let key_value = parsed[index.key.clone()].as_str().unwrap_or("$$null");
     // println!("Unindexing {:?}/{:?}", name, key_value);
     if index.data.contains_key(key_value) {
       // println!("Unindexing from index tree {:?} -> {:?}", key_value, id);
@@ -156,8 +156,8 @@ fn delete_item(name: String, id: String) -> Json<JsonValue> {
 }
 
 #[get("/<name>/<index>/<key>")]
-fn retrieve_indexed(name: String, index: String, key: String) -> Json<JsonValue> {
-  println!("Trying to retrieve indexed {:?}/{:?}/{:?}...", name, index, key);
+fn retrieve_indexed(name: String, index: String, key: Option<String>) -> Json<JsonValue> {
+  println!("Trying to retrieve indexed {:?}/{:?}/{:?}...", name, index, key.clone().unwrap_or(String::from("$$null")));
   let collection_map = COLLECTIONS.lock().unwrap();
   if !collection_map.contains_key(&name) {
     return Json(json!({
@@ -178,7 +178,7 @@ fn retrieve_indexed(name: String, index: String, key: String) -> Json<JsonValue>
     else {
       let index_obj = collection.indexes.get(&index).unwrap();
 
-      let result_tree = index_obj.data.get(&key);
+      let result_tree = index_obj.data.get(&key.unwrap_or(String::from("$$null")));
 
       if result_tree.is_none() {
         return Json(json!({
@@ -358,7 +358,7 @@ fn delete_collection(name: String) -> Status {
 #[get("/<name>")]
 fn get_collection(name: String) -> Json<JsonValue> {
   let collection_map = COLLECTIONS.lock().unwrap();
-  if collection_map.contains_key(&name) {
+  if !collection_map.contains_key(&name) {
     return Json(json!({
       "error": true,
       "status": 404,
@@ -367,8 +367,14 @@ fn get_collection(name: String) -> Json<JsonValue> {
   }
   else {
     let collection = collection_map.get(&name).unwrap();
-    let items: Vec<_> = collection.data.values().collect();
-    return Json(json!(items))
+    let results: Vec<_> = collection.data.values().collect();
+    let parsed_results: Vec<_> = results
+          .into_iter()
+          .map(|x| parse_json(x.to_string()))
+          .collect();
+    return Json(json!({
+      "items": parsed_results
+    }))
   }
 }
 
