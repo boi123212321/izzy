@@ -27,10 +27,6 @@ lazy_static! {
   static ref COLLECTIONS: Mutex<HashMap<String, Collection>> = Mutex::new(HashMap::new());
 }
 
-fn copy_json(value: &Value) -> Value {
-  return parse_json(serde_json::to_string(value).unwrap());
-}
-
 fn parse_json(datastr: String) -> Value {
   return serde_json::from_str(&datastr).unwrap();
 }
@@ -91,7 +87,7 @@ fn remove_from_collection(collection: &mut Collection, id: String, modify_fs: bo
   let item = collection.data.remove(&id).unwrap();
   let parsed = parse_json(item);
 
-  for (name, index) in collection.indexes.iter_mut() {
+  for (_name, index) in collection.indexes.iter_mut() {
     let key_value = parsed[index.key.clone()].as_str().unwrap();
     // println!("Unindexing {:?}/{:?}", name, key_value);
     if index.data.contains_key(key_value) {
@@ -359,6 +355,23 @@ fn delete_collection(name: String) -> Status {
   }
 }
 
+#[get("/<name>")]
+fn get_collection(name: String) -> Json<JsonValue> {
+  let collection_map = COLLECTIONS.lock().unwrap();
+  if collection_map.contains_key(&name) {
+    return Json(json!({
+      "error": true,
+      "status": 404,
+      "message": "Collection not found"
+    }))
+  }
+  else {
+    let collection = collection_map.get(&name).unwrap();
+    let items: Vec<_> = collection.data.values().collect();
+    return Json(json!(items))
+  }
+}
+
 #[get("/")]
 fn get() -> Json<JsonValue> {
   let collection_map = COLLECTIONS.lock().unwrap();
@@ -375,5 +388,5 @@ fn reset() -> Status {
 }
 
 pub fn routes() -> std::vec::Vec<rocket::Route> {
-  routes![compact_collection, create_index, create, get, reset, delete_collection, insert_item, retrieve_item, retrieve_indexed, delete_item]
+  routes![compact_collection, get_collection, create_index, create, get, reset, delete_collection, insert_item, retrieve_item, retrieve_indexed, delete_item]
 }
