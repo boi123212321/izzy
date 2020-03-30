@@ -12,6 +12,7 @@ use std::io::prelude::*;
 use std::path::Path;
 use std::fs::{File, rename};
 use std::io::{BufRead, BufReader};
+use pct_str::PctStr;
 
 use crate::index;
 
@@ -157,7 +158,10 @@ fn delete_item(name: String, id: String) -> Json<JsonValue> {
 
 #[get("/<name>/<index>/<key>")]
 fn retrieve_indexed(name: String, index: String, key: Option<String>) -> Json<JsonValue> {
-  println!("Trying to retrieve indexed {:?}/{:?}/{:?}...", name, index, key.clone().unwrap_or(String::from("$$null")));
+  let key_value = PctStr::new(
+    &key.clone().unwrap_or(String::from("$$null"))
+  ).unwrap().decode();
+  println!("Trying to retrieve indexed {:?}/{:?}/{:?}...", name, index, key_value);
   let collection_map = COLLECTIONS.lock().unwrap();
   if !collection_map.contains_key(&name) {
     return Json(json!({
@@ -178,7 +182,7 @@ fn retrieve_indexed(name: String, index: String, key: Option<String>) -> Json<Js
     else {
       let index_obj = collection.indexes.get(&index).unwrap();
 
-      let result_tree = index_obj.data.get(&key.unwrap_or(String::from("$$null")));
+      let result_tree = index_obj.data.get(&key_value);
 
       if result_tree.is_none() {
         return Json(json!({
