@@ -57,7 +57,7 @@ fn append_delete_marker(file: String, id: String) {
 
 fn insert_into_collection(collection: &mut Collection, id: String, json_content: Value, modify_fs: bool) {
   if modify_fs && !collection.file.is_none() {
-    let line = serde_json::to_string(&json_content).unwrap();
+    let line = serde_json::to_string(&json_content).unwrap().to_string();
     append_to_file(collection.file.as_ref().unwrap().to_string(), line);
   }
   
@@ -118,8 +118,7 @@ fn compact_collection(name: String) -> Status {
         .open(filename.clone())
         .unwrap();
     for value in collection.data.values() {
-      let json_line = serde_json::to_string(value).unwrap();
-      if let Err(e) = writeln!(file, "{}", json_line) {
+      if let Err(e) = writeln!(file, "{}", value) {
         eprintln!("Couldn't write to file: {}", e);
       }
     }
@@ -382,12 +381,30 @@ fn get_collection(name: String) -> Json<JsonValue> {
   }
 }
 
-#[get("/")]
+#[options("/<name>/count")]
+fn get_count(name: String) -> Json<JsonValue> {
+  let collection_map = COLLECTIONS.lock().unwrap();
+  if !collection_map.contains_key(&name) {
+    return Json(json!({
+      "error": true,
+      "status": 404,
+      "message": "Collection not found"
+    }))
+  }
+  else {
+    let collection = collection_map.get(&name).unwrap();
+    return Json(json!({
+      "count": collection.data.len()
+    }))
+  }
+}
+
+/* #[get("/")]
 fn get() -> Json<JsonValue> {
   let collection_map = COLLECTIONS.lock().unwrap();
   let collections: Vec<_> = collection_map.iter().collect();
   Json(json!(collections))
-}
+} */
 
 #[delete("/")]
 fn reset() -> Status {
@@ -398,5 +415,5 @@ fn reset() -> Status {
 }
 
 pub fn routes() -> std::vec::Vec<rocket::Route> {
-  routes![compact_collection, get_collection, create_index, create, get, reset, delete_collection, insert_item, retrieve_item, retrieve_indexed, delete_item]
+  routes![get_count, compact_collection, get_collection, create_index, create, /*get,*/ reset, delete_collection, insert_item, retrieve_item, retrieve_indexed, delete_item]
 }
