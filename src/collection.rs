@@ -258,7 +258,7 @@ fn retrieve_item(name: String, id: String) -> ApiResponse {
     }
   }
   else {
-    let  collection = collection_map.get_mut(&name).unwrap();
+    let collection = collection_map.get_mut(&name).unwrap();
     if !collection.data.contains_key(&id) {
       return ApiResponse {
         json: json!({
@@ -285,6 +285,48 @@ fn retrieve_item(name: String, id: String) -> ApiResponse {
         json: json!(parse_json(item.to_string())),
         status: Status::Ok
       }
+    }
+  }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct BulkOptions {
+  items: Vec<String>
+}
+
+#[post("/<name>/bulk", data="<input>")]
+fn retrieve_bulk(name: String, input: Json<BulkOptions>) -> ApiResponse {
+  println!("Trying to retrieve bulk {:?}...", name);
+  let mut collection_map = COLLECTIONS.lock().unwrap();
+  if !collection_map.contains_key(&name) {
+    return ApiResponse {
+      json: json!({
+        "status": 404,
+        "message": "Collection not found",
+        "error": true
+      }),
+      status: Status::NotFound
+    }
+  }
+  else {
+    let collection = collection_map.get_mut(&name).unwrap();
+
+    let results: Vec<_> = input.into_inner().items
+      .into_iter()
+      .map(|x| {
+        let item = collection.data.get(&x);
+        if item.is_none() {
+          return parse_json(String::from("null"));
+        }
+        return parse_json(item.unwrap().to_string());
+      })
+      .collect();
+
+    return ApiResponse {
+      json: json!({
+        "items": results
+      }),
+      status: Status::Ok
     }
   }
 }
@@ -505,5 +547,5 @@ fn reset() -> Status {
 }
 
 pub fn routes() -> std::vec::Vec<rocket::Route> {
-  routes![get_times, get_count, compact_collection, get_collection, create_index, create, /*get,*/ reset, delete_collection, insert_item, retrieve_item, retrieve_indexed, delete_item]
+  routes![retrieve_bulk, get_times, get_count, compact_collection, get_collection, create_index, create, /*get,*/ reset, delete_collection, insert_item, retrieve_item, retrieve_indexed, delete_item]
 }
