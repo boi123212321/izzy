@@ -1,11 +1,10 @@
-use std::collections::BTreeMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeMap, VecDeque};
 use std::vec::Vec;
 use std::sync::Mutex;
 
 use lazy_static::lazy_static;
 use rocket_contrib::json::{Json, JsonValue};
-use rocket::http::Status;
+use rocket::http::{Status, ContentType};
 use serde_json::{Value};
 use std::fs::OpenOptions;
 use std::io::prelude::*;
@@ -13,15 +12,35 @@ use std::path::Path;
 use std::fs::{File, rename};
 use std::io::{BufRead, BufReader};
 use pct_str::PctStr;
+use rocket::response;
+use rocket::response::{Responder, Response};
+use rocket::request::Request;
+use std::time::{SystemTime, Instant};
 
 use crate::index;
+
+#[derive(Debug)]
+struct ApiResponse {
+  json: JsonValue,
+  status: Status,
+}
+
+impl<'r> Responder<'r> for ApiResponse {
+  fn respond_to(self, req: &Request) -> response::Result<'r> {
+    Response::build_from(self.json.respond_to(&req).unwrap())
+      .status(self.status)
+      .header(ContentType::JSON)
+      .ok()
+  }
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Collection {
   name: String,
   data: HashMap<String, String>,
   file: Option<String>,
-  indexes: HashMap<String, index::Index>
+  indexes: HashMap<String, index::Index>,
+  query_times: VecDeque<(u64, u64)>
 }
 
 lazy_static! {
@@ -101,7 +120,7 @@ fn remove_from_collection(collection: &mut Collection, id: String, modify_fs: bo
   return parsed;
 }
 
-#[patch("/compact/<name>")]
+#[post("/compact/<name>", rank = 0)]
 fn compact_collection(name: String) -> Status {
   println!("Trying to compact {:?}...", name);
   let mut collection_map = COLLECTIONS.lock().unwrap();
@@ -129,54 +148,69 @@ fn compact_collection(name: String) -> Status {
 }
 
 #[delete("/<name>/<id>")]
-fn delete_item(name: String, id: String) -> Json<JsonValue> {
+fn delete_item(name: String, id: String) -> ApiResponse {
   // println!("Trying to delete {:?}/{:?}...", name, id);
   let mut collection_map = COLLECTIONS.lock().unwrap();
   if !collection_map.contains_key(&name) {
-    return Json(json!({
-      "status": 404,
-      "message": "Not found",
-      "error": true
-    }));
+    return ApiResponse {
+      json: json!({
+        "status": 404,
+        "message": "Collection not found",
+        "error": true
+      }),
+      status: Status::NotFound
+    }
   }
   else {
     let collection = collection_map.get_mut(&name).unwrap();
     if !collection.data.contains_key(&id) {
-      return Json(json!({
-        "status": 404,
-        "message": "Not found",
-        "error": true
-      }));
+      return ApiResponse {
+        json: json!({
+          "status": 404,
+          "message": "Item not found",
+          "error": true
+        }),
+        status: Status::NotFound
+      }
     }
     else {
       let item = remove_from_collection(collection, id, true);
-      return Json(json!(item));
+      return ApiResponse {
+        json: json!(item),
+        status: Status::Ok
+      }
     }
   }
 }
 
 #[get("/<name>/<index>/<key>")]
-fn retrieve_indexed(name: String, index: String, key: Option<String>) -> Json<JsonValue> {
+fn retrieve_indexed(name: String, index: String, key: Option<String>) -> ApiResponse {
   let key_value = PctStr::new(
     &key.clone().unwrap_or(String::from("$$null"))
   ).unwrap().decode();
   println!("Trying to retrieve indexed {:?}/{:?}/{:?}...", name, index, key_value);
   let collection_map = COLLECTIONS.lock().unwrap();
   if !collection_map.contains_key(&name) {
-    return Json(json!({
-      "status": 404,
-      "message": "Not found",
-      "error": true
-    }));
+    return ApiResponse {
+      json: json!({
+        "status": 404,
+        "message": "Collection not found",
+        "error": true
+      }),
+      status: Status::NotFound
+    }
   }
   else {
     let collection = collection_map.get(&name).unwrap();
     if !collection.indexes.contains_key(&index) {
-      return Json(json!({
-        "status": 404,
-        "message": "Not found",
-        "error": true
-      }));
+      return ApiResponse {
+        json: json!({
+          "status": 404,
+          "message": "Item not found",
+          "error": true
+        }),
+        status: Status::NotFound
+      }
     }
     else {
       let index_obj = collection.indexes.get(&index).unwrap();
@@ -184,9 +218,12 @@ fn retrieve_indexed(name: String, index: String, key: Option<String>) -> Json<Js
       let result_tree = index_obj.data.get(&key_value);
 
       if result_tree.is_none() {
-        return Json(json!({
-          "items": []
-        }));
+        return ApiResponse {
+          json: json!({
+            "items": []
+          }),
+          status: Status::Ok
+        }
       }
       else {
         let results: Vec<_> = result_tree.unwrap().values().collect();
@@ -194,42 +231,65 @@ fn retrieve_indexed(name: String, index: String, key: Option<String>) -> Json<Js
           .into_iter()
           .map(|x| parse_json(x.to_string()))
           .collect();
-        return Json(json!({
-          "items": parsed_results
-        }));
+        return ApiResponse {
+          json: json!({
+            "items": parsed_results
+          }),
+          status: Status::Ok
+        }
       }
     }
   }
 }
 
-#[get("/<name>/<id>")]
-fn retrieve_item(name: String, id: String) -> Json<JsonValue> {
+#[get("/<name>/<id>", rank = 1)]
+fn retrieve_item(name: String, id: String) -> ApiResponse {
   println!("Trying to retrieve {:?}/{:?}...", name, id);
-  let collection_map = COLLECTIONS.lock().unwrap();
+  let now = Instant::now();
+  let mut collection_map = COLLECTIONS.lock().unwrap();
   if !collection_map.contains_key(&name) {
-    return Json(json!({
-      "status": 404,
-      "message": "Not found",
-      "error": true
-    }));
+    return ApiResponse {
+      json: json!({
+        "status": 404,
+        "message": "Collection not found",
+        "error": true
+      }),
+      status: Status::NotFound
+    }
   }
   else {
-    let collection = collection_map.get(&name).unwrap();
+    let  collection = collection_map.get_mut(&name).unwrap();
     if !collection.data.contains_key(&id) {
-      return Json(json!({
-        "status": 404,
-        "message": "Not found",
-        "error": true
-      }));
+      return ApiResponse {
+        json: json!({
+          "status": 404,
+          "message": "Item not found",
+          "error": true
+        }),
+        status: Status::NotFound
+      }
     }
     else {
       let item = collection.data.get(&id).unwrap();
-      return Json(json!(parse_json(item.to_string())));
+
+      let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis() as u64;
+      let query_time = now.elapsed().as_nanos() as u64;
+      collection.query_times.push_back(
+        (timestamp, query_time)
+      );
+      if collection.query_times.len() > 2500 {
+        collection.query_times.pop_front().unwrap();
+      }
+
+      return ApiResponse {
+        json: json!(parse_json(item.to_string())),
+        status: Status::Ok
+      }
     }
   }
 }
 
-#[post("/<name>/<id>", data = "<input>")]
+#[post("/<name>/<id>", data = "<input>", rank = 1)]
 fn insert_item(name: String, id: String, input: Json<JsonValue>) -> Status {
   println!("Trying to insert {:?}/{:?}...", name, id);
   let mut collection_map = COLLECTIONS.lock().unwrap();
@@ -287,7 +347,7 @@ fn create_index(name: String, index: String, data: Json<IndexData>) -> Status {
   }
 }
 
-#[post("/<name>", data = "<data>")]
+#[post("/<name>", data = "<data>", rank = 7)]
 fn create(name: String, data: Json<CollectionData>) -> Status {
   println!("Trying to create collection {:?}...", name);
   let mut collection_map = COLLECTIONS.lock().unwrap();
@@ -300,6 +360,7 @@ fn create(name: String, data: Json<CollectionData>) -> Status {
       data: HashMap::new(),
       file: data.file.clone(),
       indexes: HashMap::new(),
+      query_times: VecDeque::new()
     };
 
     for index in data.indexes.iter() {
@@ -359,14 +420,17 @@ fn delete_collection(name: String) -> Status {
 }
 
 #[get("/<name>")]
-fn get_collection(name: String) -> Json<JsonValue> {
+fn get_collection(name: String) -> ApiResponse {
   let collection_map = COLLECTIONS.lock().unwrap();
   if !collection_map.contains_key(&name) {
-    return Json(json!({
-      "error": true,
-      "status": 404,
-      "message": "Collection not found"
-    }))
+    return ApiResponse {
+      json: json!({
+        "status": 404,
+        "message": "Collection not found",
+        "error": true
+      }),
+      status: Status::NotFound
+    }
   }
   else {
     let collection = collection_map.get(&name).unwrap();
@@ -375,36 +439,62 @@ fn get_collection(name: String) -> Json<JsonValue> {
           .into_iter()
           .map(|x| parse_json(x.to_string()))
           .collect();
-    return Json(json!({
-      "items": parsed_results
-    }))
+    return ApiResponse {
+      json: json!({
+        "items": parsed_results
+      }),
+      status: Status::Ok
+    }
   }
 }
 
-#[options("/<name>/count")]
-fn get_count(name: String) -> Json<JsonValue> {
+#[get("/<name>/times")]
+fn get_times(name: String) -> ApiResponse {
   let collection_map = COLLECTIONS.lock().unwrap();
   if !collection_map.contains_key(&name) {
-    return Json(json!({
-      "error": true,
-      "status": 404,
-      "message": "Collection not found"
-    }))
+    return ApiResponse {
+      json: json!({
+        "status": 404,
+        "message": "Collection not found",
+        "error": true
+      }),
+      status: Status::NotFound
+    }
   }
   else {
     let collection = collection_map.get(&name).unwrap();
-    return Json(json!({
-      "count": collection.data.len()
-    }))
+    return ApiResponse {
+      json: json!({
+        "query_times": collection.query_times
+      }),
+      status: Status::Ok
+    }
   }
 }
 
-/* #[get("/")]
-fn get() -> Json<JsonValue> {
+#[get("/<name>/count")]
+fn get_count(name: String) -> ApiResponse {
   let collection_map = COLLECTIONS.lock().unwrap();
-  let collections: Vec<_> = collection_map.iter().collect();
-  Json(json!(collections))
-} */
+  if !collection_map.contains_key(&name) {
+    return ApiResponse {
+      json: json!({
+        "status": 404,
+        "message": "Collection not found",
+        "error": true
+      }),
+      status: Status::NotFound
+    }
+  }
+  else {
+    let collection = collection_map.get(&name).unwrap();
+    return ApiResponse {
+      json: json!({
+        "count": collection.data.len()
+      }),
+      status: Status::Ok
+    }
+  }
+}
 
 #[delete("/")]
 fn reset() -> Status {
@@ -415,5 +505,5 @@ fn reset() -> Status {
 }
 
 pub fn routes() -> std::vec::Vec<rocket::Route> {
-  routes![get_count, compact_collection, get_collection, create_index, create, /*get,*/ reset, delete_collection, insert_item, retrieve_item, retrieve_indexed, delete_item]
+  routes![get_times, get_count, compact_collection, get_collection, create_index, create, /*get,*/ reset, delete_collection, insert_item, retrieve_item, retrieve_indexed, delete_item]
 }
