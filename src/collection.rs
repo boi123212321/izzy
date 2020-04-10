@@ -185,9 +185,13 @@ fn delete_item(name: String, id: String) -> ApiResponse {
 
 #[get("/<name>/<index>/<key>")]
 fn retrieve_indexed(name: String, index: String, key: Option<String>) -> ApiResponse {
-  let key_value = PctStr::new(
-    &key.clone().unwrap_or(String::from("$$null"))
-  ).unwrap().decode();
+  let key_value;
+  if key.is_none() {
+    key_value = String::from("$$null");
+  }
+  else {
+    key_value = String::from(key.clone().unwrap());
+  }
   println!("Trying to retrieve indexed {:?}/{:?}/{:?}...", name, index, key_value);
   let collection_map = COLLECTIONS.lock().unwrap();
   if !collection_map.contains_key(&name) {
