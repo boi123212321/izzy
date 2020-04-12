@@ -104,20 +104,23 @@ fn remove_from_collection(collection: &mut Collection, id: String, modify_fs: bo
     append_delete_marker(collection.file.as_ref().unwrap().to_string(), id.clone());
   }
 
-  let item = collection.data.remove(&id).unwrap();
-  let parsed = parse_json(item);
+  if collection.data.contains_key(&id) {
+    let item = collection.data.remove(&id).unwrap();
+    let parsed = parse_json(item);
 
-  for (_name, index) in collection.indexes.iter_mut() {
-    let key_value = parsed[index.key.clone()].as_str().unwrap_or("$$null");
-    // println!("Unindexing {:?}/{:?}", name, key_value);
-    if index.data.contains_key(key_value) {
-      // println!("Unindexing from index tree {:?} -> {:?}", key_value, id);
-      let tree = index.data.get_mut(key_value).unwrap();
-      tree.remove(&id);
+    for (_name, index) in collection.indexes.iter_mut() {
+      let key_value = parsed[index.key.clone()].as_str().unwrap_or("$$null");
+      // println!("Unindexing {:?}/{:?}", name, key_value);
+      if index.data.contains_key(key_value) {
+        // println!("Unindexing from index tree {:?} -> {:?}", key_value, id);
+        let tree = index.data.get_mut(key_value).unwrap();
+        tree.remove(&id);
+      }
     }
-  }
 
-  return parsed;
+    return parsed;
+  }
+  return parse_json("null".to_string());
 }
 
 #[post("/compact/<name>", rank = 0)]
