@@ -18,7 +18,8 @@ mod index;
 #[get("/")]
 fn root() -> Json<JsonValue> {
   Json(json!({
-    "version": "0.1.0"
+    "name": "izzy",
+    "version": "0.1.1"
   }))
 }
 
