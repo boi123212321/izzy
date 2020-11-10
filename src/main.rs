@@ -6,7 +6,6 @@ extern crate rocket;
 extern crate rocket_contrib;
 #[macro_use]
 extern crate serde_derive;
-extern crate pct_str;
 
 use rocket::config::{Config, Environment};
 use rocket_contrib::json::{Json, JsonValue};
@@ -19,7 +18,7 @@ mod index;
 fn root() -> Json<JsonValue> {
   Json(json!({
     "name": "izzy",
-    "version": "0.1.1"
+    "version": "0.2.0"
   }))
 }
 
