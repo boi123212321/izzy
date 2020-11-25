@@ -6,7 +6,6 @@ extern crate rocket;
 extern crate rocket_contrib;
 #[macro_use]
 extern crate serde_derive;
-extern crate pct_str;
 
 use rocket::config::{Config, Environment};
 use rocket_contrib::json::{Json, JsonValue};
@@ -21,6 +20,12 @@ fn root() -> Json<JsonValue> {
     "name": "izzy",
     "version": "0.1.1"
   }))
+}
+
+#[post("/exit")]
+fn exit() -> Json<JsonValue> {
+  std::process::exit(0);
+  Json(json!({}))
 }
 
 fn main() {
@@ -43,7 +48,7 @@ fn main() {
   let app = rocket::custom(config);
 
   app
-  .mount("/", routes![root])
+  .mount("/", routes![exit, root])
   .mount("/collection", collection::routes())
   .launch();
 }

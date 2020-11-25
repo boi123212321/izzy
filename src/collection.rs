@@ -11,7 +11,6 @@ use std::io::prelude::*;
 use std::path::Path;
 use std::fs::{File, rename};
 use std::io::{BufRead, BufReader};
-use pct_str::PctStr;
 use rocket::response;
 use rocket::response::{Responder, Response};
 use rocket::request::Request;
