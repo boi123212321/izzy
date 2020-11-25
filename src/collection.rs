@@ -1,4 +1,4 @@
-use std::collections::{HashMap, BTreeMap, VecDeque};
+use std::collections::{HashMap, HashSet, BTreeMap};
 use std::vec::Vec;
 use std::sync::Mutex;
 
@@ -14,7 +14,6 @@ use std::io::{BufRead, BufReader};
 use rocket::response;
 use rocket::response::{Responder, Response};
 use rocket::request::Request;
-use std::time::{SystemTime, Instant};
 
 use crate::index;
 
@@ -39,7 +38,6 @@ struct Collection {
   data: HashMap<String, String>,
   file: Option<String>,
   indexes: HashMap<String, index::Index>,
-  query_times: VecDeque<(u64, u64)>
 }
 
 lazy_static! {
@@ -85,15 +83,15 @@ fn insert_into_collection(collection: &mut Collection, id: String, json_content:
     let key_value = json_content[index.key.clone()].as_str().unwrap_or("$$null");
     // println!("Indexing {:?}/{:?}/{:?}", collection.name, key_value, id);
     if !index.data.contains_key(key_value) {
-      println!("New index tree {:?} -> {:?}", key_value, id);
-      let mut tree = HashMap::new();
-      tree.insert(id.clone(), serde_json::to_string(&json_content).unwrap());
+      println!("New index {} -> {}", key_value, id);
+      let mut tree = HashSet::new();
+      tree.insert(id.clone());
       index.data.insert(key_value.to_string(), tree);
     }
     else {
       // println!("Inserting into index tree {:?} -> {:?}", key_value, id);
       let tree = index.data.get_mut(key_value).unwrap();
-      tree.insert(id.clone(), serde_json::to_string(&json_content).unwrap());
+      tree.insert(id.clone());
     }
   }
 }
@@ -221,9 +219,9 @@ fn retrieve_indexed(name: String, index: String, key: Option<String>) -> ApiResp
     else {
       let index_obj = collection.indexes.get(&index).unwrap();
 
-      let result_tree = index_obj.data.get(&key_value);
+      let result_set = index_obj.data.get(&key_value);
 
-      if result_tree.is_none() {
+      if result_set.is_none() {
         return ApiResponse {
           json: json!({
             "items": []
@@ -232,10 +230,16 @@ fn retrieve_indexed(name: String, index: String, key: Option<String>) -> ApiResp
         }
       }
       else {
-        let results: Vec<_> = result_tree.unwrap().values().collect();
+        let results: Vec<_> = result_set.unwrap().iter().collect();
         let parsed_results: Vec<_> = results
           .into_iter()
-          .map(|x| parse_json(x.to_string()))
+          .map(|x| {
+            let item = collection.data.get(x);
+            if item.is_some() {
+              return parse_json(item.unwrap().to_string());
+            }
+            return parse_json("null".to_string());
+          })
           .collect();
         return ApiResponse {
           json: json!({
@@ -251,7 +255,6 @@ fn retrieve_indexed(name: String, index: String, key: Option<String>) -> ApiResp
 #[get("/<name>/<id>", rank = 1)]
 fn retrieve_item(name: String, id: String) -> ApiResponse {
   println!("Trying to retrieve {:?}/{:?}...", name, id);
-  let now = Instant::now();
   let mut collection_map = COLLECTIONS.lock().unwrap();
   if !collection_map.contains_key(&name) {
     return ApiResponse {
@@ -277,16 +280,6 @@ fn retrieve_item(name: String, id: String) -> ApiResponse {
     }
     else {
       let item = collection.data.get(&id).unwrap();
-
-      let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis() as u64;
-      let query_time = now.elapsed().as_nanos() as u64;
-      collection.query_times.push_back(
-        (timestamp, query_time)
-      );
-      if collection.query_times.len() > 2500 {
-        collection.query_times.pop_front().unwrap();
-      }
-
       return ApiResponse {
         json: json!(parse_json(item.to_string())),
         status: Status::Ok
@@ -408,7 +401,6 @@ fn create(name: String, data: Json<CollectionData>) -> Status {
       data: HashMap::new(),
       file: data.file.clone(),
       indexes: HashMap::new(),
-      query_times: VecDeque::new()
     };
 
     for index in data.indexes.iter() {
@@ -496,30 +488,6 @@ fn get_collection(name: String) -> ApiResponse {
   }
 }
 
-#[get("/<name>/times")]
-fn get_times(name: String) -> ApiResponse {
-  let collection_map = COLLECTIONS.lock().unwrap();
-  if !collection_map.contains_key(&name) {
-    return ApiResponse {
-      json: json!({
-        "status": 404,
-        "message": "Collection not found",
-        "error": true
-      }),
-      status: Status::NotFound
-    }
-  }
-  else {
-    let collection = collection_map.get(&name).unwrap();
-    return ApiResponse {
-      json: json!({
-        "query_times": collection.query_times
-      }),
-      status: Status::Ok
-    }
-  }
-}
-
 #[get("/<name>/count")]
 fn get_count(name: String) -> ApiResponse {
   let collection_map = COLLECTIONS.lock().unwrap();
@@ -553,5 +521,5 @@ fn reset() -> Status {
 }
 
 pub fn routes() -> std::vec::Vec<rocket::Route> {
-  routes![retrieve_bulk, get_times, get_count, compact_collection, get_collection, create_index, create, /*get,*/ reset, delete_collection, insert_item, retrieve_item, retrieve_indexed, delete_item]
+  routes![retrieve_bulk, get_count, compact_collection, get_collection, create_index, create, /*get,*/ reset, delete_collection, insert_item, retrieve_item, retrieve_indexed, delete_item]
 }
