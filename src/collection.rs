@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, BTreeMap};
+use std::collections::{HashMap, HashSet};
 use std::vec::Vec;
 use std::sync::Mutex;
 
@@ -413,7 +413,7 @@ fn create_index(name: String, index: String, data: Json<IndexData>) -> Status {
       // Create index
       let created_index = index::Index {
         key: data.key.clone(),
-        data: BTreeMap::new()
+        data: HashMap::new()
       };
       collection.indexes.insert(index, created_index);
       return Status::Ok;
@@ -440,7 +440,7 @@ fn create(name: String, data: Json<CollectionData>) -> Status {
       // Create index
       let created_index = index::Index {
         key: index.key.clone(),
-        data: BTreeMap::new()
+        data: HashMap::new()
       };
       collection.indexes.insert(index.name.clone(), created_index);
     }
