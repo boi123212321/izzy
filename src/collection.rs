@@ -248,6 +248,39 @@ fn retrieve_indexed(name: String, index: String, key: Option<String>) -> ApiResp
   }
 }
 
+#[get("/<name>/head", rank = 0)]
+fn retrieve_head(name: String) -> ApiResponse {
+  println!("Trying to retrieve head of {:?}...", name);
+  let mut collection_map = COLLECTIONS.lock().unwrap();
+  if !collection_map.contains_key(&name) {
+    return ApiResponse {
+      json: json!({
+        "status": 404,
+        "message": "Collection not found",
+        "error": true
+      }),
+      status: Status::NotFound
+    }
+  }
+  else {
+    let collection = collection_map.get_mut(&name).unwrap();
+    if collection.data.len() == 0 {
+      return ApiResponse {
+        json: json!(parse_json("null".to_string())),
+        status: Status::Ok
+      }
+    }
+    else {
+      let item = collection.data.values().nth(0).unwrap();
+
+      return ApiResponse {
+        json: json!(parse_json(item.to_string())),
+        status: Status::Ok
+      }
+    }
+  }
+}
+
 #[get("/<name>/<id>", rank = 1)]
 fn retrieve_item(name: String, id: String) -> ApiResponse {
   println!("Trying to retrieve {:?}/{:?}...", name, id);
@@ -553,5 +586,5 @@ fn reset() -> Status {
 }
 
 pub fn routes() -> std::vec::Vec<rocket::Route> {
-  routes![retrieve_bulk, get_times, get_count, compact_collection, get_collection, create_index, create, /*get,*/ reset, delete_collection, insert_item, retrieve_item, retrieve_indexed, delete_item]
+  routes![retrieve_head, retrieve_bulk, get_times, get_count, compact_collection, get_collection, create_index, create, /*get,*/ reset, delete_collection, insert_item, retrieve_item, retrieve_indexed, delete_item]
 }
