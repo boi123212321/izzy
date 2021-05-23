@@ -454,7 +454,8 @@ fn create(name: String, data: Json<CollectionData>) -> Status {
         let file = File::open(path).unwrap();
         let reader = BufReader::new(file);
 
-        for (_index, line) in reader.lines().enumerate() {
+        for (index, line) in reader.lines().enumerate() {
+          eprintln!("Parsing line {}", index);
           let line = line.unwrap();
 
           if line.len() > 0 {
