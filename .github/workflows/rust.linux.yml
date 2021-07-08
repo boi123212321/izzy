@@ -38,8 +38,7 @@ jobs:
         with:
           files: |
             target/release/izzy_linux
-            target/release/izzy_linux-arm7
+            target/release/izzy_linux-armv7
             target/release/izzy_linux-arm64v8
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
