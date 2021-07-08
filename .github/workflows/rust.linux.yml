@@ -14,17 +14,31 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
+      - name: install gcc
+        run: sudo apt update && sudo apt install -y gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf
       - name: Install nightly
         run: rustup toolchain install nightly
+      - name: add arm 7
+        run: rustup target add --toolchain nightly armv7-unknown-linux-gnueabihf
+      - name: add aarch64
+        run: rustup target add --toolchain nightly aarch64-unknown-linux-gnu 
+      - name: config linker
+        run:  echo -e '[target.aarch64-unknown-linux-gnu]\nlinker = "aarch64-linux-gnu-gcc"\n[target.armv7-unknown-linux-gnueabihf]\nlinker = "arm-linux-gnueabihf-gcc"' > ~/.cargo/config
       - name: Build
-        run: cargo +nightly build --release
+        run: cargo +nightly build --release  --target=x86_64-unknown-linux-gnu
+      - name: Build arm 7
+        run:  cargo +nightly build --release --target=armv7-unknown-linux-gnueabihf
+      - name: Build aarch64
+        run:  cargo +nightly build --release --target=aarch64-unknown-linux-gnu
       - name: Rename
-        run: mv target/release/izzy target/release/izzy_linux
+        run: mv ./target/x86_64-unknown-linux-gnu/release/izzy target/release/izzy_linux  && mv ./target/aarch64-unknown-linux-gnu/release/izzy target/release/izzy_linux-arm64v8 && mv ./target/armv7-unknown-linux-gnueabihf/release/izzy target/release/izzy_linux-arm7
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
             target/release/izzy_linux
+            target/release/izzy_linux-armv7
+            target/release/izzy_linux-arm64v8
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
